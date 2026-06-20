@@ -21,6 +21,10 @@ def make_room(name):
         'audio_mime': 'audio/webm',
         'web_host_last_frame': 0,
         'viewer_count': 0,
+        # auction state
+        'current_item': None,   # {name, price}
+        'bids': [],             # [{name, amount, ts}]
+        'sale_history': [],     # [{item, price, buyer, ts}]
     }
     with rooms_lock:
         rooms[room_id] = room
@@ -108,6 +112,72 @@ def api_create_room():
     data = request.get_json()
     room = make_room(data.get('name', 'Room'))
     return jsonify({'room_id': room['id']})
+
+@app.route('/room_state/<room_id>')
+def room_state(room_id):
+    room = get_room(room_id)
+    if not room:
+        return jsonify({})
+    return jsonify({
+        'current_item': room['current_item'],
+        'bids': room['bids'],
+        'sale_history': room['sale_history'],
+        'viewer_count': room['viewer_count'],
+    })
+
+@app.route('/set_item/<room_id>', methods=['POST'])
+def set_item(room_id):
+    room = get_room(room_id)
+    if not room:
+        return jsonify({'ok': False})
+    data = request.get_json()
+    item = {'name': data.get('name', ''), 'price': data.get('price', '')}
+    room['current_item'] = item
+    room['bids'] = []
+    msg = {'sender': '📦 Item', 'text': f'{item["name"]} — ${item["price"]}', 'type': 'item'}
+    with room['chat_lock']:
+        room['chat_messages'].append(msg)
+    return jsonify({'ok': True})
+
+@app.route('/clear_item/<room_id>', methods=['POST'])
+def clear_item(room_id):
+    room = get_room(room_id)
+    if not room:
+        return jsonify({'ok': False})
+    room['current_item'] = None
+    room['bids'] = []
+    return jsonify({'ok': True})
+
+@app.route('/bid/<room_id>', methods=['POST'])
+def place_bid(room_id):
+    room = get_room(room_id)
+    if not room or not room['current_item']:
+        return jsonify({'ok': False})
+    data = request.get_json()
+    bid = {'name': data.get('name', 'Buyer'), 'amount': data.get('amount', room['current_item']['price']), 'ts': time.time()}
+    room['bids'].append(bid)
+    msg = {'sender': '🙋 ' + bid['name'], 'text': f'wants it for ${bid["amount"]}', 'type': 'bid'}
+    with room['chat_lock']:
+        room['chat_messages'].append(msg)
+    return jsonify({'ok': True})
+
+@app.route('/sold/<room_id>', methods=['POST'])
+def mark_sold(room_id):
+    room = get_room(room_id)
+    if not room:
+        return jsonify({'ok': False})
+    data = request.get_json()
+    buyer = data.get('buyer', '')
+    price = data.get('price', room['current_item']['price'] if room['current_item'] else '?')
+    item_name = room['current_item']['name'] if room['current_item'] else '?'
+    sale = {'item': item_name, 'price': price, 'buyer': buyer, 'ts': time.time()}
+    room['sale_history'].append(sale)
+    msg = {'sender': '🏆 SOLD', 'text': f'{item_name} → {buyer} for ${price}', 'type': 'sold', 'buyer': buyer, 'item': item_name, 'price': price}
+    with room['chat_lock']:
+        room['chat_messages'].append(msg)
+    room['current_item'] = None
+    room['bids'] = []
+    return jsonify({'ok': True})
 
 @app.route('/')
 def lobby():
@@ -220,17 +290,32 @@ body {{ background:#111; color:#eee; font-family:Arial,sans-serif; height:100dvh
 #splash input {{ padding:12px 16px; border-radius:10px; border:2px solid #4a90e2; background:#222; color:#fff; font-size:17px; text-align:center; width:240px; outline:none; }}
 #splash button {{ padding:12px 40px; border-radius:10px; border:none; background:#4a90e2; color:#fff; font-size:17px; cursor:pointer; font-weight:bold; }}
 #main {{ display:none; flex-direction:column; height:100%; }}
-#video-wrap {{ height:40vh; min-height:120px; flex-shrink:0; display:flex; align-items:center; justify-content:center; background:#000; overflow:hidden; }}
+#video-wrap {{ height:32vh; min-height:100px; flex-shrink:0; display:flex; align-items:center; justify-content:center; background:#000; overflow:hidden; }}
 #video-wrap img {{ max-width:100%; max-height:100%; object-fit:contain; }}
+#item-card {{ display:none; flex-shrink:0; background:#1a1a2e; border-top:3px solid #e8a020; padding:10px 14px; }}
+#item-card .item-name {{ font-size:17px; font-weight:bold; color:#fff; }}
+#item-card .item-price {{ font-size:22px; font-weight:bold; color:#e8a020; margin:2px 0 8px; }}
+#item-card .bid-row {{ display:flex; gap:8px; align-items:center; }}
+#item-card input {{ flex:1; padding:8px 10px; border-radius:8px; border:1px solid #e8a020; background:#222; color:#fff; font-size:15px; }}
+#item-card .claim-btn {{ padding:8px 18px; border-radius:8px; border:none; background:#e8a020; color:#111; font-size:15px; font-weight:bold; cursor:pointer; white-space:nowrap; }}
 #chat-wrap {{ flex:1; display:flex; flex-direction:column; background:#1e1e1e; border-top:2px solid #333; min-height:0; }}
 #top-bar {{ display:flex; align-items:center; gap:8px; padding:6px 10px; background:#2a2a2a; flex-shrink:0; }}
 #messages {{ flex:1; overflow-y:auto; padding:8px 10px; font-size:14px; min-height:0; }}
 #messages div {{ margin-bottom:4px; }}
 .sender {{ font-weight:bold; color:#7eb8f7; }}
 .system {{ color:#aaa; font-style:italic; }}
+.msg-bid {{ color:#e8a020; font-weight:bold; }}
+.msg-item {{ color:#4a90e2; font-style:italic; }}
+.msg-sold {{ color:#27ae60; font-weight:bold; }}
 #send-bar {{ display:flex; gap:8px; padding:8px 10px; flex-shrink:0; }}
 #send-bar input {{ flex:1; padding:8px 10px; border-radius:8px; border:1px solid #555; background:#333; color:#eee; font-size:15px; }}
 #send-bar button {{ padding:8px 16px; border-radius:8px; border:none; background:#4a90e2; color:#fff; font-size:14px; cursor:pointer; }}
+#sold-flash {{ display:none; position:fixed; inset:0; background:rgba(0,0,0,.85); z-index:999;
+  flex-direction:column; align-items:center; justify-content:center; gap:10px; }}
+#sold-flash .sold-title {{ font-size:52px; }}
+#sold-flash .sold-item {{ font-size:24px; color:#e8a020; font-weight:bold; }}
+#sold-flash .sold-buyer {{ font-size:18px; color:#aaa; }}
+#sold-flash .sold-price {{ font-size:28px; color:#27ae60; font-weight:bold; }}
 </style></head>
 <body>
 {PWA_INSTALL_BTN}
@@ -241,6 +326,14 @@ body {{ background:#111; color:#eee; font-family:Arial,sans-serif; height:100dvh
 </div>
 <div id="main">
   <div id="video-wrap"><img src="/video/{room_id}" /></div>
+  <div id="item-card">
+    <div class="item-name" id="itemName"></div>
+    <div class="item-price" id="itemPrice"></div>
+    <div class="bid-row">
+      <input id="bidAmount" type="number" placeholder="Your offer ($)" />
+      <button class="claim-btn" onclick="placeBid()">🙋 I want this!</button>
+    </div>
+  </div>
   <div id="chat-wrap">
     <div id="top-bar">
       <span id="viewerLabel"></span>
@@ -254,8 +347,14 @@ body {{ background:#111; color:#eee; font-family:Arial,sans-serif; height:100dvh
     </div>
   </div>
 </div>
+<div id="sold-flash">
+  <div class="sold-title">🏆 SOLD!</div>
+  <div class="sold-item" id="flashItem"></div>
+  <div class="sold-price" id="flashPrice"></div>
+  <div class="sold-buyer" id="flashBuyer"></div>
+</div>
 <script>
-let seen=0,viewerName='';
+let seen=0,viewerName='',currentItem=null;
 document.getElementById('nameInput').addEventListener('keydown',e=>{{if(e.key==='Enter')joinStream();}});
 function joinStream(){{
   const name=document.getElementById('nameInput').value.trim();
@@ -265,7 +364,7 @@ function joinStream(){{
   document.getElementById('main').style.display='flex';
   document.getElementById('viewerLabel').textContent='👤 '+name;
   fetch('/viewer_join/{room_id}',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{name}})}});
-  pollChat();
+  pollChat(); pollState();
   window.addEventListener('beforeunload',()=>navigator.sendBeacon('/viewer_leave/{room_id}',JSON.stringify({{name:viewerName}})));
 }}
 function enableAudio(){{
@@ -281,13 +380,52 @@ function sendMsg(){{
   document.getElementById('msg').value='';
   fetch('/send/{room_id}',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{sender:viewerName,text}})}});
 }}
+function placeBid(){{
+  if(!currentItem)return;
+  const amt=document.getElementById('bidAmount').value||currentItem.price;
+  fetch('/bid/{room_id}',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{name:viewerName,amount:amt}})}});
+  document.getElementById('bidAmount').value='';
+}}
+function pollState(){{
+  fetch('/room_state/{room_id}').then(r=>r.json()).then(s=>{{
+    currentItem=s.current_item;
+    const card=document.getElementById('item-card');
+    if(currentItem){{
+      document.getElementById('itemName').textContent=currentItem.name;
+      document.getElementById('itemPrice').textContent='$'+currentItem.price;
+      card.style.display='block';
+    }}else{{
+      card.style.display='none';
+    }}
+  }}).catch(()=>{{}});
+  setTimeout(pollState,1000);
+}}
+function showSoldFlash(item,buyer,price){{
+  document.getElementById('flashItem').textContent=item;
+  document.getElementById('flashBuyer').textContent='To: '+buyer;
+  document.getElementById('flashPrice').textContent='$'+price;
+  const f=document.getElementById('sold-flash');
+  f.style.display='flex';
+  setTimeout(()=>{{f.style.display='none';}},4000);
+}}
 function pollChat(){{
   fetch('/messages/{room_id}').then(r=>r.json()).then(msgs=>{{
     const box=document.getElementById('messages');
     for(let i=seen;i<msgs.length;i++){{
+      const m=msgs[i];
       const d=document.createElement('div');
-      const sys=msgs[i].sender.includes('System');
-      d.innerHTML=sys?'<span class="system">'+msgs[i].text+'</span>':'<span class="sender">'+msgs[i].sender+':</span> '+msgs[i].text;
+      if(m.type==='sold'){{
+        d.innerHTML='<span class="msg-sold">🏆 '+m.text+'</span>';
+        showSoldFlash(m.item||'',m.buyer||'',m.price||'');
+      }}else if(m.type==='bid'){{
+        d.innerHTML='<span class="msg-bid">'+m.sender+' '+m.text+'</span>';
+      }}else if(m.type==='item'){{
+        d.innerHTML='<span class="msg-item">'+m.sender+': '+m.text+'</span>';
+      }}else if(m.sender.includes('System')){{
+        d.innerHTML='<span class="system">'+m.text+'</span>';
+      }}else{{
+        d.innerHTML='<span class="sender">'+m.sender+':</span> '+m.text;
+      }}
       box.appendChild(d);
     }}
     if(msgs.length>seen)box.scrollTop=box.scrollHeight;
@@ -314,13 +452,24 @@ body {{ background:#111; color:#eee; font-family:Arial,sans-serif; display:flex;
 #top button {{ padding:7px 18px; border-radius:8px; border:none; background:#4a90e2; color:#fff; font-size:14px; cursor:pointer; margin:3px; }}
 .stop {{ background:#e05 !important; }}
 #status {{ font-size:12px; color:#aaa; margin-top:4px; }}
-#video-wrap {{ height:35vh; min-height:120px; flex-shrink:0; display:flex; align-items:center; justify-content:center; background:#000; overflow:hidden; }}
+#video-wrap {{ height:25vh; min-height:80px; flex-shrink:0; display:flex; align-items:center; justify-content:center; background:#000; overflow:hidden; }}
 video {{ max-width:100%; max-height:100%; object-fit:contain; transform:scaleX(-1); }}
+#item-panel {{ flex-shrink:0; background:#1a1a2e; border-top:3px solid #e8a020; padding:10px; }}
+#item-panel .row {{ display:flex; gap:6px; margin-bottom:6px; }}
+#item-panel input {{ flex:1; padding:8px; border-radius:8px; border:1px solid #555; background:#222; color:#fff; font-size:14px; }}
+#item-panel .post-btn {{ padding:8px 14px; border-radius:8px; border:none; background:#e8a020; color:#111; font-weight:bold; cursor:pointer; font-size:14px; white-space:nowrap; }}
+#bids-list {{ font-size:13px; color:#ccc; max-height:80px; overflow-y:auto; }}
+#bids-list .bid-entry {{ display:flex; justify-content:space-between; align-items:center; padding:3px 0; border-bottom:1px solid #333; }}
+#bids-list .sold-btn {{ padding:3px 10px; border-radius:6px; border:none; background:#27ae60; color:#fff; font-size:12px; cursor:pointer; }}
+#no-bids {{ color:#666; font-size:12px; font-style:italic; }}
 #chat-wrap {{ flex:1; display:flex; flex-direction:column; background:#1e1e1e; border-top:2px solid #333; min-height:0; }}
-#messages {{ flex:1; overflow-y:auto; padding:8px 10px; font-size:14px; }}
-#messages div {{ margin-bottom:4px; }}
+#messages {{ flex:1; overflow-y:auto; padding:8px 10px; font-size:13px; }}
+#messages div {{ margin-bottom:3px; }}
 .sender {{ font-weight:bold; color:#f7a97e; }}
 .system {{ color:#aaa; font-style:italic; }}
+.msg-bid {{ color:#e8a020; font-weight:bold; }}
+.msg-sold {{ color:#27ae60; font-weight:bold; }}
+.msg-item {{ color:#4a90e2; font-style:italic; }}
 #send-bar {{ display:flex; gap:8px; padding:8px 10px; flex-shrink:0; }}
 #send-bar input {{ flex:1; padding:8px 10px; border-radius:8px; border:1px solid #555; background:#333; color:#eee; font-size:15px; }}
 #send-bar button {{ padding:8px 16px; border-radius:8px; border:none; background:#4a90e2; color:#fff; font-size:14px; cursor:pointer; }}
@@ -337,6 +486,14 @@ video {{ max-width:100%; max-height:100%; object-fit:contain; transform:scaleX(-
   <div id="status">Press Start Camera to begin.</div>
 </div>
 <div id="video-wrap"><video id="vid" autoplay playsinline muted></video></div>
+<div id="item-panel">
+  <div class="row">
+    <input id="itemName" placeholder="Item name" />
+    <input id="itemPrice" type="number" placeholder="Price $" style="width:90px;flex:none;" />
+    <button class="post-btn" onclick="postItem()">📦 Post</button>
+  </div>
+  <div id="bids-list"><div id="no-bids">No bids yet</div></div>
+</div>
 <div id="chat-wrap">
   <div id="messages"></div>
   <div id="send-bar">
@@ -391,6 +548,30 @@ function sendFrames(){{
   }}
   setTimeout(sendFrames,100);
 }}
+function postItem(){{
+  const name=document.getElementById('itemName').value.trim();
+  const price=document.getElementById('itemPrice').value.trim();
+  if(!name||!price)return;
+  fetch('/set_item/{room_id}',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{name,price}})}});
+  document.getElementById('itemName').value='';
+  document.getElementById('itemPrice').value='';
+}}
+function sellTo(buyer,price){{
+  if(!confirm('Mark SOLD to '+buyer+' for $'+price+'?'))return;
+  fetch('/sold/{room_id}',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{buyer,price}})}});
+}}
+function pollState(){{
+  fetch('/room_state/{room_id}').then(r=>r.json()).then(s=>{{
+    const bids=s.bids||[];
+    const list=document.getElementById('bids-list');
+    if(bids.length===0){{list.innerHTML='<div id="no-bids">No bids yet</div>';return;}}
+    list.innerHTML=bids.slice().reverse().map(b=>
+      '<div class="bid-entry"><span>🙋 <b>'+b.name+'</b> — $'+b.amount+'</span>'+
+      '<button class="sold-btn" onclick="sellTo(\''+b.name+'\',\''+b.amount+'\')">SOLD ✓</button></div>'
+    ).join('');
+  }}).catch(()=>{{}});
+  setTimeout(pollState,1000);
+}}
 function sendMsg(){{
   const text=document.getElementById('msg').value.trim();
   if(!text)return;
@@ -401,9 +582,13 @@ function pollChat(){{
   fetch('/messages/{room_id}').then(r=>r.json()).then(msgs=>{{
     const box=document.getElementById('messages');
     for(let i=seen;i<msgs.length;i++){{
+      const m=msgs[i];
       const d=document.createElement('div');
-      const sys=msgs[i].sender.includes('System');
-      d.innerHTML=sys?'<span class="system">'+msgs[i].text+'</span>':'<span class="sender">'+msgs[i].sender+':</span> '+msgs[i].text;
+      if(m.type==='sold') d.innerHTML='<span class="msg-sold">🏆 '+m.text+'</span>';
+      else if(m.type==='bid') d.innerHTML='<span class="msg-bid">'+m.sender+' '+m.text+'</span>';
+      else if(m.type==='item') d.innerHTML='<span class="msg-item">'+m.sender+': '+m.text+'</span>';
+      else if(m.sender.includes('System')) d.innerHTML='<span class="system">'+m.text+'</span>';
+      else d.innerHTML='<span class="sender">'+m.sender+':</span> '+m.text;
       box.appendChild(d);
     }}
     if(msgs.length>seen)box.scrollTop=box.scrollHeight;
@@ -411,7 +596,7 @@ function pollChat(){{
   }}).catch(()=>{{}});
   setTimeout(pollChat,1000);
 }}
-pollChat();
+pollChat(); pollState();
 </script></body></html>'''
 
 @app.route('/video/<room_id>')
