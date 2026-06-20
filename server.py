@@ -505,14 +505,29 @@ video {{ max-width:100%; max-height:100%; object-fit:contain; transform:scaleX(-
 let stream=null,sending=false,canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');
 let facingMode='environment',seen=0,audioRecorder=null;
 async function startCam(){{
+  document.getElementById('status').textContent='Requesting camera...';
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){{
+    document.getElementById('status').textContent='Camera not supported. Make sure you are using HTTPS.';
+    return;
+  }}
   try{{
-    stream=await navigator.mediaDevices.getUserMedia({{video:{{facingMode}},audio:false}});
+    // Try requested facingMode first, fall back to any camera
+    try{{
+      stream=await navigator.mediaDevices.getUserMedia({{video:{{facingMode}},audio:false}});
+    }}catch(e1){{
+      stream=await navigator.mediaDevices.getUserMedia({{video:true,audio:false}});
+    }}
     document.getElementById('vid').srcObject=stream;
     document.getElementById('startBtn').style.display='none';
     document.getElementById('stopBtn').style.display='';
     document.getElementById('status').textContent='Streaming live!';
     sending=true; sendFrames(); startMic();
-  }}catch(e){{document.getElementById('status').textContent='Camera error: '+e.message;}}
+  }}catch(e){{
+    let msg='Camera error: '+e.message;
+    if(e.name==='NotAllowedError')msg='Camera blocked — please allow camera access in your browser settings and reload.';
+    else if(e.name==='NotFoundError')msg='No camera found on this device.';
+    document.getElementById('status').textContent=msg;
+  }}
 }}
 async function startMic(){{
   try{{
