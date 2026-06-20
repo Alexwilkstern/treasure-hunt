@@ -483,7 +483,7 @@ video {{ max-width:100%; max-height:100%; object-fit:contain; transform:scaleX(-
     <button class="stop" id="stopBtn" onclick="stopCam()" style="display:none">Stop</button>
     <button onclick="flipCam()">Flip</button>
   </div>
-  <div id="status">Press Start Camera to begin.</div>
+  <div id="status" style="font-size:15px;color:#fff;background:#333;padding:8px;border-radius:8px;margin-top:6px;">Press Start Camera to begin.</div>
 </div>
 <div id="video-wrap"><video id="vid" autoplay playsinline muted></video></div>
 <div id="item-panel">
@@ -520,12 +520,15 @@ async function startCam(){{
     document.getElementById('vid').srcObject=stream;
     document.getElementById('startBtn').style.display='none';
     document.getElementById('stopBtn').style.display='';
-    document.getElementById('status').textContent='Streaming live!';
+    document.getElementById('status').style.background='#27ae60';
+    document.getElementById('status').textContent='✅ Streaming live!';
     sending=true; sendFrames(); startMic();
   }}catch(e){{
-    let msg='Camera error: '+e.message;
-    if(e.name==='NotAllowedError')msg='Camera blocked — please allow camera access in your browser settings and reload.';
-    else if(e.name==='NotFoundError')msg='No camera found on this device.';
+    let msg='';
+    if(e.name==='NotAllowedError')msg='🚫 Camera blocked! Go to your browser settings, allow camera for this site, then reload.';
+    else if(e.name==='NotFoundError')msg='❌ No camera found on this device.';
+    else msg='❌ Camera error: '+e.name+' — '+e.message;
+    document.getElementById('status').style.background='#c0392b';
     document.getElementById('status').textContent=msg;
   }}
 }}
