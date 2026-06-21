@@ -505,14 +505,23 @@ video {{ max-width:100%; max-height:100%; object-fit:contain; transform:scaleX(-
 let stream=null,sending=false,canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');
 let facingMode='environment',seen=0,audioRecorder=null;
 async function startCam(){{
+  const st=document.getElementById('status');
+  st.textContent='⏳ Waiting — tap ALLOW when Chrome asks for camera permission...';
+  st.style.cssText='background:#1a3a5c;color:#fff;padding:10px;border-radius:8px;font-size:15px;margin-top:6px;';
   try{{
     stream=await navigator.mediaDevices.getUserMedia({{video:{{facingMode}},audio:false}});
     document.getElementById('vid').srcObject=stream;
     document.getElementById('startBtn').style.display='none';
     document.getElementById('stopBtn').style.display='';
-    document.getElementById('status').textContent='Streaming live!';
+    st.style.background='#27ae60';
+    st.textContent='✅ Streaming live!';
     sending=true; sendFrames(); startMic();
-  }}catch(e){{document.getElementById('status').textContent='Camera error: '+e.message;}}
+  }}catch(e){{
+    st.style.background='#c0392b';
+    if(e.name==='NotAllowedError')st.textContent='🚫 Camera blocked! Go to Chrome site settings and allow camera, then reload.';
+    else if(e.name==='NotFoundError')st.textContent='❌ No camera found.';
+    else st.textContent='❌ Error: '+e.name+' — '+e.message;
+  }}
 }}
 async function startMic(){{
   try{{
