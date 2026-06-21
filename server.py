@@ -508,6 +508,7 @@ video {{ max-width:100%; max-height:100%; object-fit:contain; transform:scaleX(-
 let stream=null,sending=false,canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');
 let facingMode='environment',seen=0,audioRecorder=null;
 async function startCam(){{
+  alert('Button clicked! JS is working.');
   document.getElementById('status').textContent='Requesting camera...';
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){{
     document.getElementById('status').textContent='Camera not supported. Make sure you are using HTTPS.';
