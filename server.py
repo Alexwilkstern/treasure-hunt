@@ -96,11 +96,7 @@ def pwa_manifest():
 
 @app.route('/sw.js')
 def service_worker():
-    # Unregister itself and take over all clients so old cached pages are gone
-    sw = """self.addEventListener('install',e=>self.skipWaiting());
-self.addEventListener('activate',e=>{
-  e.waitUntil(caches.keys().then(ks=>Promise.all(ks.map(k=>caches.delete(k)))).then(()=>self.registration.unregister()).then(()=>clients.matchAll({includeUncontrolled:true,type:'window'})).then(cs=>cs.forEach(c=>c.navigate(c.url))));
-});"""
+    sw = "self.addEventListener('install',e=>self.skipWaiting());self.addEventListener('activate',e=>e.waitUntil(clients.claim()));self.addEventListener('fetch',e=>e.respondWith(fetch(e.request).catch(()=>new Response('Offline',{status:503}))));"
     return Response(sw, mimetype='application/javascript')
 
 @app.route('/icon-192.png')
@@ -487,7 +483,7 @@ video {{ max-width:100%; max-height:100%; object-fit:contain; transform:scaleX(-
     <button class="stop" id="stopBtn" onclick="stopCam()" style="display:none">Stop</button>
     <button onclick="flipCam()">Flip</button>
   </div>
-  <div id="status" style="font-size:15px;color:#fff;background:#333;padding:8px;border-radius:8px;margin-top:6px;">Press Start Camera to begin.</div>
+  <div id="status">Press Start Camera to begin.</div>
 </div>
 <div id="video-wrap"><video id="vid" autoplay playsinline muted></video></div>
 <div id="item-panel">
@@ -506,40 +502,17 @@ video {{ max-width:100%; max-height:100%; object-fit:contain; transform:scaleX(-
   </div>
 </div>
 <script>
-window.onerror=function(msg,src,line){{document.getElementById('status').style.background='#900';document.getElementById('status').textContent='JS ERROR: '+msg+' line '+line;return true;}};
 let stream=null,sending=false,canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');
 let facingMode='environment',seen=0,audioRecorder=null;
-document.addEventListener('DOMContentLoaded',function(){{
-  document.getElementById('startBtn').addEventListener('click',startCam);
-}});
 async function startCam(){{
-  alert('Button clicked! JS is working.');
-  document.getElementById('status').textContent='Requesting camera...';
-  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){{
-    document.getElementById('status').textContent='Camera not supported. Make sure you are using HTTPS.';
-    return;
-  }}
   try{{
-    // Try requested facingMode first, fall back to any camera
-    try{{
-      stream=await navigator.mediaDevices.getUserMedia({{video:{{facingMode}},audio:false}});
-    }}catch(e1){{
-      stream=await navigator.mediaDevices.getUserMedia({{video:true,audio:false}});
-    }}
+    stream=await navigator.mediaDevices.getUserMedia({{video:{{facingMode}},audio:false}});
     document.getElementById('vid').srcObject=stream;
     document.getElementById('startBtn').style.display='none';
     document.getElementById('stopBtn').style.display='';
-    document.getElementById('status').style.background='#27ae60';
-    document.getElementById('status').textContent='✅ Streaming live!';
+    document.getElementById('status').textContent='Streaming live!';
     sending=true; sendFrames(); startMic();
-  }}catch(e){{
-    let msg='';
-    if(e.name==='NotAllowedError')msg='🚫 Camera blocked! Go to your browser settings, allow camera for this site, then reload.';
-    else if(e.name==='NotFoundError')msg='❌ No camera found on this device.';
-    else msg='❌ Camera error: '+e.name+' — '+e.message;
-    document.getElementById('status').style.background='#c0392b';
-    document.getElementById('status').textContent=msg;
-  }}
+  }}catch(e){{document.getElementById('status').textContent='Camera error: '+e.message;}}
 }}
 async function startMic(){{
   try{{
