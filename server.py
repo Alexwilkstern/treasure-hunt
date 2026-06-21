@@ -96,10 +96,11 @@ def pwa_manifest():
 
 @app.route('/sw.js')
 def service_worker():
-    sw = """const CACHE='v3';
-self.addEventListener('install',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.map(k=>caches.delete(k)))));self.skipWaiting();});
-self.addEventListener('activate',e=>{e.waitUntil(clients.claim());});
-self.addEventListener('fetch',e=>{e.respondWith(fetch(e.request).catch(()=>new Response('Offline',{status:503})));});"""
+    # Unregister itself and take over all clients so old cached pages are gone
+    sw = """self.addEventListener('install',e=>self.skipWaiting());
+self.addEventListener('activate',e=>{
+  e.waitUntil(caches.keys().then(ks=>Promise.all(ks.map(k=>caches.delete(k)))).then(()=>self.registration.unregister()).then(()=>clients.matchAll({includeUncontrolled:true,type:'window'})).then(cs=>cs.forEach(c=>c.navigate(c.url))));
+});"""
     return Response(sw, mimetype='application/javascript')
 
 @app.route('/icon-192.png')
