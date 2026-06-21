@@ -576,7 +576,7 @@ function pollState(){{
     if(bids.length===0){{list.innerHTML='<div id="no-bids">No bids yet</div>';return;}}
     list.innerHTML=bids.slice().reverse().map(b=>
       '<div class="bid-entry"><span>🙋 <b>'+b.name+'</b> — $'+b.amount+'</span>'+
-      '<button class="sold-btn" onclick="sellTo(\''+b.name+'\',\''+b.amount+'\')">SOLD ✓</button></div>'
+      '<button class="sold-btn" onclick="sellTo(\\x27'+b.name+'\\x27,\\x27'+b.amount+'\\x27)">SOLD ✓</button></div>'
     ).join('');
   }}).catch(()=>{{}});
   setTimeout(pollState,1000);
