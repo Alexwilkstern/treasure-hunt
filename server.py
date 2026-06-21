@@ -505,8 +505,12 @@ video {{ max-width:100%; max-height:100%; object-fit:contain; transform:scaleX(-
   </div>
 </div>
 <script>
+window.onerror=function(msg,src,line){{document.getElementById('status').style.background='#900';document.getElementById('status').textContent='JS ERROR: '+msg+' line '+line;return true;}};
 let stream=null,sending=false,canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');
 let facingMode='environment',seen=0,audioRecorder=null;
+document.addEventListener('DOMContentLoaded',function(){{
+  document.getElementById('startBtn').addEventListener('click',startCam);
+}});
 async function startCam(){{
   alert('Button clicked! JS is working.');
   document.getElementById('status').textContent='Requesting camera...';
